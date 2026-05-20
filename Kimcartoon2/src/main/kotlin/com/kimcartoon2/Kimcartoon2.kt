@@ -9,6 +9,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
 import java.util.concurrent.TimeUnit
 
 class Kimcartoon2 : MainAPI() {
