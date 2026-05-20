@@ -1,0 +1,47 @@
+[
+    {
+        "iconUrl": "https://raw.githubusercontent.com/YoureMotherHelped-Love-Mom/cloudstream-extension-YoureMotherHelped-Love-Mom/master/Kimcartoon2/QUAK.png",
+        "fileHash": "sha256-7618b74b942e3605d7edf6e212833a3df8e9ae65cfe882b410aa36d52199aaee",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/YoureMotherHelped-Love-Mom/cloudstream-extension-YoureMotherHelped-Love-Mom",
+        "fileSize": 17552,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "YoureMotherHelped-Love-Mom"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "Anime"
+        ],
+        "version": 1,
+        "internalName": "Kimcartoon2",
+        "description": "KimCartoon is the best cartoons online website, where you can watch cartoon online completely free.",
+        "url": "https://raw.githubusercontent.com/YoureMotherHelped-Love-Mom/cloudstream-extension-YoureMotherHelped-Love-Mom/builds/Kimcartoon2.cs3",
+        "name": "Kimcartoon2"
+    },
+    {
+        "iconUrl": "https://raw.githubusercontent.com/YoureMotherHelped-Love-Mom/cloudstream-extension-YoureMotherHelped-Love-Mom/master/finn.png",
+        "fileHash": "sha256-0bf5f1a1e2bba26b9b56449aa3d900a21bac3290f3ada2c925e15caf19c6b246",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/YoureMotherHelped-Love-Mom/cloudstream-extension-YoureMotherHelped-Love-Mom",
+        "fileSize": 15392,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "YoureMotherHelped-Love-Mom"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Cartoon",
+            "Anime",
+            "Movie"
+        ],
+        "version": 1,
+        "internalName": "WCO",
+        "description": "your best favorate cartooon one click away",
+        "url": "https://raw.githubusercontent.com/YoureMotherHelped-Love-Mom/cloudstream-extension-YoureMotherHelped-Love-Mom/builds/WCO.cs3",
+        "name": "WCO"
+    }
+]
