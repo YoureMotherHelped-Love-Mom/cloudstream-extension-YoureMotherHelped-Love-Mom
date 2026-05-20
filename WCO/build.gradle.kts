@@ -1,6 +1,7 @@
 version = 1
 
 cloudstream {
+    description = "your best favorate cartooon one click away"
     language = "en"
     authors = listOf("YoureMotherHelped-Love-Mom")
     status = 1
