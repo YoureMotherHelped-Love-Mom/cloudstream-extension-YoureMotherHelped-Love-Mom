@@ -1,0 +1,72 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew make makePluginsJson
+
+      - name: Copy artifacts
+        run: |
+          mkdir -p build-artifacts
+          for dir in */build/*.cs3; do
+            if [ -f "$dir" ]; then
+              cp "$dir" build-artifacts/
+            fi
+          done
+          cp build/plugins.json build-artifacts/
+
+      - name: Deploy to builds branch
+        run: |
+          git config user.name "YoureMotherHelped-Love-Mom"
+          git config user.email "youremotherhelped-love-mom@users.noreply.github.com"
+
+          git fetch origin builds 2>/dev/null || true
+          git checkout builds 2>/dev/null || git checkout --orphan builds
+
+          rm -f *.cs3 plugins.json
+
+          cp build-artifacts/* .
+          git add -f *.cs3 plugins.json
+
+          if git diff --cached --quiet; then
+            echo "No changes to deploy"
+            exit 0
+          fi
+
+          COMMIT_HASH=$(git rev-parse HEAD)
+          git commit -m "Build ${COMMIT_HASH}"
+
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git push origin builds
+        shell: bash
