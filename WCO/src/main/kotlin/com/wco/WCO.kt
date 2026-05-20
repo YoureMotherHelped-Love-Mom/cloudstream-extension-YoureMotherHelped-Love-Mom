@@ -77,12 +77,17 @@ class WCO(
     private fun Element.toSearchResult(): SearchResponse {
         val linkEl = selectFirst("div.img a") ?: selectFirst("a")
         val href = linkEl?.attr("href") ?: ""
-        val showUrl = episodeUrlToShowUrl(href)
         val img = selectFirst("div.img img, img")
         val posterUrl = img?.attr("src")?.let { fixUrl(it) } ?: ""
         val title = img?.attr("alt")?.ifEmpty {
             selectFirst(".recent-release-episodes a")?.text()
         } ?: selectFirst(".recent-release-episodes a")?.text() ?: ""
+
+        val showUrl = if (href.contains("/anime/") || !href.contains("-episode-")) {
+            fixUrl(href)
+        } else {
+            episodeUrlToShowUrl(href)
+        }
 
         val typeBadge = selectFirst(".badge2")
         val type = when (typeBadge?.attr("data-type")) {
@@ -101,16 +106,22 @@ class WCO(
         val doc = app.get("$mainUrl/").document
         val sectionName = request.name
 
-        val sectionAnchor = when (sectionName) {
-            "Recent Releases" -> "recent-releases"
-            "Dubbed Anime" -> "dubbed"
-            "Cartoons" -> "cartoon"
-            "Subbed Anime" -> "subbed"
-            "Movies" -> "movies"
-            else -> "recent-releases"
+        val items = when (sectionName) {
+            "Recent Releases" -> {
+                val sections = doc.select(".recent-release-main")
+                if (sections.isNotEmpty()) {
+                    sections.first()!!.select("#sidebar_right ul.items li")
+                } else {
+                    doc.select("ul.items li")
+                }
+            }
+            "Dubbed Anime" -> doc.select(".recent-release-main:has(a[name=dubbed]) #sidebar_right ul.items li")
+            "Cartoons" -> doc.select(".recent-release-main:has(a[name=cartoon]) #sidebar_right ul.items li")
+            "Subbed Anime" -> doc.select(".recent-release-main:has(a[name=subbed]) #sidebar_right ul.items li")
+            "Movies" -> doc.select(".recent-release-main:has(a[name=movies]) #sidebar_right ul.items li")
+            else -> doc.select("ul.items li")
         }
 
-        val items = doc.select("a[name=$sectionAnchor] ~ ul.items li")
         return newHomePageResponse(request.name, items.map { it.toSearchResult() })
     }
 
@@ -118,7 +129,7 @@ class WCO(
         val response = postRequest("$mainUrl/search", "catara=$query&konuara=series")
             ?: return null
         val doc = Jsoup.parse(response)
-        val items = doc.select("ul.items li")
+        val items = doc.select("#sidebar_right2 ul.items li")
         if (items.isEmpty()) return null
         return items.map { it.toSearchResult() }.toNewSearchResponseList()
     }
@@ -138,11 +149,10 @@ class WCO(
 
         val plot = doc.selectFirst("#sidebar_cat p")?.text() ?: ""
 
-        val episodes = doc.select("a.dark-episode-item").mapNotNull { ep ->
-            val href = ep.attr("href")
-            var epName = ep.selectFirst("span")?.text() ?: ""
+        val episodes = doc.select("#episodeList a.dark-episode-item").mapNotNull { ep ->
+            val href = fixUrl(ep.attr("href"))
+            val epName = ep.selectFirst("span")?.text() ?: ""
             val epNum = extractEpisodeNumber(href, epName)
-            val lang = ep.attr("data-lang")
 
             newEpisode(href) {
                 this.name = epName
@@ -186,33 +196,35 @@ class WCO(
         val doc = app.get(data).document
         val html = doc.html()
 
-        val decoded = decodeCvdArray(html) ?: run {
-            val iframe = doc.selectFirst("iframe")
-            if (iframe != null) {
-                val src = iframe.attr("src")
-                loadExtractor(src, "$mainUrl/", subtitleCallback) { link ->
+        val decoded = decodeObfuscatedJs(html)
+        if (decoded != null) {
+            val iframeSrc = Jsoup.parse(decoded).selectFirst("iframe")?.attr("src")
+            if (iframeSrc != null) {
+                loadExtractor(iframeSrc, "$mainUrl/", subtitleCallback) { link ->
                     callback(link)
                 }
                 return true
             }
-            return false
         }
 
-        val iframeSrc = Jsoup.parse(decoded).selectFirst("iframe")?.attr("src")
-            ?: return false
-
-        loadExtractor(iframeSrc, "$mainUrl/", subtitleCallback) { link ->
-            callback(link)
+        val iframe = doc.selectFirst("iframe")
+        if (iframe != null) {
+            val src = iframe.attr("src")
+            loadExtractor(src, "$mainUrl/", subtitleCallback) { link ->
+                callback(link)
+            }
+            return true
         }
-        return true
+
+        return false
     }
 
     private fun episodeUrlToShowUrl(episodeUrl: String): String {
-        val path = episodeUrl.substringAfterLast("$mainUrl/")
+        val path = episodeUrl.substringAfter("$mainUrl/")
         val slug = if (path.contains("-episode-")) {
             path.substringBefore("-episode-")
         } else {
-            path
+            path.removeSuffix("/")
         }
         return "$mainUrl/anime/$slug"
     }
@@ -225,11 +237,17 @@ class WCO(
         return fromTitle ?: 1
     }
 
-    private fun decodeCvdArray(html: String): String? {
+    private fun decodeObfuscatedJs(html: String): String? {
         try {
-            val regex = Regex("""var\s+CVd\s*=\s*\[([^\]]+)\]""")
-            val match = regex.find(html) ?: return null
-            val arrayContent = match.groupValues[1]
+            val arrayRegex = Regex("""var\s+(\w+)\s*=\s*\[([^\]]+)\]""")
+            val arrayMatch = arrayRegex.find(html) ?: return null
+            val arrayContent = arrayMatch.groupValues[2]
+
+            val offsetRegex = Regex(
+                """fromCharCode\(\s*parseInt\s*\(\s*atob\s*\(\s*\w+\s*\)\s*\.\s*replace\s*\(\s*/\D/g\s*,\s*[''""]\s*\)\s*\)\s*-\s*(\d+)\s*\)"""
+            )
+            val offsetMatch = offsetRegex.find(html)
+            val offset = offsetMatch?.groupValues?.get(1)?.toIntOrNull() ?: 38909312
 
             val base64Values = Regex("""['"]([A-Za-z0-9+/=]+)['"]""").findAll(arrayContent)
                 .map { it.groupValues[1] }.toList()
@@ -243,7 +261,7 @@ class WCO(
                     val str = String(bytes, Charsets.UTF_8)
                     val numStr = str.replace(Regex("""\D"""), "")
                     if (numStr.isNotEmpty()) {
-                        val charCode = numStr.toInt() - 75689121
+                        val charCode = numStr.toInt() - offset
                         decoded.append(charCode.toChar())
                     }
                 } catch (_: Exception) { }
@@ -251,7 +269,7 @@ class WCO(
 
             return URLDecoder.decode(decoded.toString(), "UTF-8")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to decode CVd: ${e.message}")
+            Log.e(TAG, "Failed to decode obfuscated JS: ${e.message}")
             return null
         }
     }

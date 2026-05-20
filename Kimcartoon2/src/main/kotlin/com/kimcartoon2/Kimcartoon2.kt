@@ -20,7 +20,7 @@ class Kimcartoon2 : MainAPI() {
     override val hasChromecastSupport = true
     override val hasDownloadSupport = true
     override val usesWebView = false
-    override val supportedTypes = setOf(TvType.TvSeries, TvType.Movie)
+    override val supportedTypes = setOf(TvType.TvSeries, TvType.Movie, TvType.Cartoon)
 
     companion object {
         private const val TAG = "Kimcartoon2"
@@ -33,12 +33,10 @@ class Kimcartoon2 : MainAPI() {
     }
 
     private fun Element.toSearchResult(): SearchResponse {
-        val href = fixUrl(this.select("a.thumb").attr("href"))
-        val title = this.select("h2.title").text().ifEmpty {
-            this.select("a.thumb img").attr("alt")
-        }
-        val posterUrl = fixUrl(this.select("a.thumb img").attr("src"))
-        val hasEpisodes = !this.select("div.ep-bg a").isEmpty()
+        val href = fixUrl(selectFirst("a.thumb")?.attr("href") ?: "")
+        val title = selectFirst("h2.title")?.text() ?: selectFirst("a.thumb img")?.attr("alt") ?: ""
+        val posterUrl = fixUrl(selectFirst("a.thumb img")?.attr("src") ?: "")
+        val hasEpisodes = !select("div.ep-bg a").isEmpty()
         val type = if (hasEpisodes) TvType.TvSeries else TvType.Movie
 
         return newAnimeSearchResponse(title, href, type) {
@@ -56,14 +54,15 @@ class Kimcartoon2 : MainAPI() {
     override suspend fun search(query: String, page: Int): SearchResponseList? {
         val url = "$mainUrl/Search/?s=${query}&page=$page"
         val doc = app.get(url).document
-        val items = doc.select("div.list-cartoon > div.item")
+        val items = doc.select("div.item")
+        if (items.isEmpty()) return null
         return items.map { it.toSearchResult() }.toNewSearchResponseList()
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = "${request.data}$page"
         val doc = app.get(url).document
-        val items = doc.select("div.list-cartoon > div.item")
+        val items = doc.select("div.item")
         return newHomePageResponse(request.name, items.map { it.toSearchResult() })
     }
 
@@ -129,7 +128,7 @@ class Kimcartoon2 : MainAPI() {
     ): Boolean {
         val episodeId = extractEpisodeId(data) ?: return false
 
-        val servers = listOf("tserver", "hserver")
+        val servers = listOf("hserver", "tserver")
         for (server in servers) {
             try {
                 val result = fetchVideoUrl(episodeId, server)
@@ -193,7 +192,7 @@ class Kimcartoon2 : MainAPI() {
     private fun fetchVideoUrl(episodeId: String, server: String): Pair<String, Boolean>? {
         val response = postRequest(
             "$mainUrl/ajax/anime/load_episodes_v2?s=$server",
-            "episode_id=$episodeId"
+            "episode_id=$episodeId&s=$server"
         ) ?: return null
 
         val json = gson.fromJson(response, LoadEpisodeResponse::class.java)
