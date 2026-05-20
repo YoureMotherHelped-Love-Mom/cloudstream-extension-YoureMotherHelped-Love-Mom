@@ -65,7 +65,7 @@ class WCO(
         sharedPref?.edit()?.putString("selected_domain", domain)?.apply()
     }
 
-    override val mainPage: List<Pair<String, String>>
+    override val mainPage
         get() = mainPageOf(
             "$mainUrl/" to "Recent Releases",
             "$mainUrl/" to "Dubbed Anime",
