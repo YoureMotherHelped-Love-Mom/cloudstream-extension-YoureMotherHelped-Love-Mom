@@ -9,5 +9,5 @@ cloudstream {
         "Movie",
         "Anime"
     )
-    iconUrl = "https://www.google.com/s2/favicons?domain=kimcartoon.si&sz=%size%"
+    iconUrl = "https://raw.githubusercontent.com/YoureMotherHelped-Love-Mom/cloudstream-extension-YoureMotherHelped-Love-Mom/master/Kimcartoon2/QUAK.png"
 }

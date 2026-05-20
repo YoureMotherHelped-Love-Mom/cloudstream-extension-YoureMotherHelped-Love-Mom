@@ -6,9 +6,10 @@ import com.lagradost.api.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
+import java.util.concurrent.TimeUnit
 
 class Kimcartoon2 : MainAPI() {
     override var mainUrl = "https://kimcartoon.si"
@@ -23,7 +24,11 @@ class Kimcartoon2 : MainAPI() {
     companion object {
         private const val TAG = "Kimcartoon2"
         private val gson = Gson()
-        private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        private val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
     }
 
     private fun Element.toSearchResult(): SearchResponse {
@@ -49,20 +54,20 @@ class Kimcartoon2 : MainAPI() {
 
     override suspend fun search(query: String, page: Int): SearchResponseList? {
         val url = "$mainUrl/Search/?s=${query}&page=$page"
-        val doc = app.get(url, referer = "$mainUrl/").document
+        val doc = app.get(url).document
         val items = doc.select("div.list-cartoon > div.item")
         return items.map { it.toSearchResult() }.toNewSearchResponseList()
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val url = "${request.data}$page"
-        val doc = app.get(url, referer = "$mainUrl/").document
+        val doc = app.get(url).document
         val items = doc.select("div.list-cartoon > div.item")
         return newHomePageResponse(request.name, items.map { it.toSearchResult() })
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url, referer = "$mainUrl/").document
+        val doc = app.get(url).document
 
         val title = doc.selectFirst("h1 a.bigChar")?.text()
             ?: doc.selectFirst("h1")?.text()
@@ -150,19 +155,45 @@ class Kimcartoon2 : MainAPI() {
         return false
     }
 
-    private suspend fun fetchVideoUrl(episodeId: String, server: String): Pair<String, Boolean>? {
-        val headers = mapOf(
-            "User-Agent" to USER_AGENT,
-            "X-Requested-With" to "XMLHttpRequest",
-            "Referer" to "$mainUrl/",
-            "Content-Type" to "application/x-www-form-urlencoded"
-        )
-        val body = "episode_id=$episodeId"
-        val response = app.post(
+    private fun postRequest(url: String, body: String): String? {
+        return try {
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .addHeader("X-Requested-With", "XMLHttpRequest")
+                .addHeader("Referer", "$mainUrl/")
+                .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                .post(okhttp3.RequestBody.create(null, body))
+                .build()
+            val resp = client.newCall(req).execute()
+            resp.body?.string()
+        } catch (e: Exception) {
+            Log.e(TAG, "POST failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun getJson(url: String): String? {
+        return try {
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .addHeader("Referer", "$mainUrl/")
+                .get()
+                .build()
+            val resp = client.newCall(req).execute()
+            resp.body?.string()
+        } catch (e: Exception) {
+            Log.e(TAG, "GET failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun fetchVideoUrl(episodeId: String, server: String): Pair<String, Boolean>? {
+        val response = postRequest(
             "$mainUrl/ajax/anime/load_episodes_v2?s=$server",
-            headers = headers,
-            requestBody = body
-        ).body.string()
+            "episode_id=$episodeId"
+        ) ?: return null
 
         val json = gson.fromJson(response, LoadEpisodeResponse::class.java)
         if (!json.status || json.value.isNullOrEmpty()) return null
@@ -182,7 +213,7 @@ class Kimcartoon2 : MainAPI() {
             value
         } else {
             try {
-                val playlistJson = app.get(value, referer = "$mainUrl/").body.string()
+                val playlistJson = getJson(value) ?: return null
                 val playlist = gson.fromJson(playlistJson, PlaylistResponse::class.java)
                 playlist.playlist?.firstOrNull()?.let { item ->
                     item.sources?.firstOrNull()?.file
