@@ -8,6 +8,8 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.util.concurrent.TimeUnit
@@ -137,14 +139,10 @@ class Kimcartoon2 : MainAPI() {
                     if (isEmbed) {
                         val iframeSrc = extractIframeSrc(videoUrl)
                         if (iframeSrc != null) {
-                            loadExtractor(iframeSrc, "$mainUrl/", subtitleCallback) { link ->
-                                callback(link)
-                            }
+                            loadExtractor(iframeSrc, "$mainUrl/", subtitleCallback, callback)
                         }
                     } else {
-                        loadExtractor(videoUrl, "$mainUrl/", subtitleCallback) { link ->
-                            callback(link)
-                        }
+                        loadExtractor(videoUrl, "$mainUrl/", subtitleCallback, callback)
                     }
                     return true
                 }
@@ -153,40 +151,6 @@ class Kimcartoon2 : MainAPI() {
             }
         }
         return false
-    }
-
-    private fun postRequest(url: String, body: String): String? {
-        return try {
-            val req = Request.Builder()
-                .url(url)
-                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .addHeader("X-Requested-With", "XMLHttpRequest")
-                .addHeader("Referer", "$mainUrl/")
-                .addHeader("Content-Type", "application/x-www-form-urlencoded")
-                .post(okhttp3.RequestBody.create(null, body))
-                .build()
-            val resp = client.newCall(req).execute()
-            resp.body?.string()
-        } catch (e: Exception) {
-            Log.e(TAG, "POST failed: ${e.message}")
-            null
-        }
-    }
-
-    private fun getJson(url: String): String? {
-        return try {
-            val req = Request.Builder()
-                .url(url)
-                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .addHeader("Referer", "$mainUrl/")
-                .get()
-                .build()
-            val resp = client.newCall(req).execute()
-            resp.body?.string()
-        } catch (e: Exception) {
-            Log.e(TAG, "GET failed: ${e.message}")
-            null
-        }
     }
 
     private fun fetchVideoUrl(episodeId: String, server: String): Pair<String, Boolean>? {
@@ -205,9 +169,7 @@ class Kimcartoon2 : MainAPI() {
             return Pair(value, true)
         }
 
-        if (json.type == "mediafire") {
-            return null
-        }
+        if (json.type == "mediafire") return null
 
         val videoUrl = if (value.contains(".m3u8") || value.contains(".mp4")) {
             value
@@ -216,8 +178,7 @@ class Kimcartoon2 : MainAPI() {
                 val playlistJson = getJson(value) ?: return null
                 val playlist = gson.fromJson(playlistJson, PlaylistResponse::class.java)
                 playlist.playlist?.firstOrNull()?.let { item ->
-                    item.sources?.firstOrNull()?.file
-                        ?: item.file
+                    item.sources?.firstOrNull()?.file ?: item.file
                 } ?: value
             } catch (e: Exception) {
                 value
@@ -240,7 +201,44 @@ class Kimcartoon2 : MainAPI() {
     }
 
     private fun extractEpisodeId(data: String): String? {
-        return Regex("""id=(\d+)""").find(data)?.groupValues?.get(1)
+        Regex("""[?&]id=(\d+)""").find(data)?.groupValues?.get(1)?.let { return it }
+        Regex("""[?&]episode_id=(\d+)""").find(data)?.groupValues?.get(1)?.let { return it }
+        Regex("""Episode-(\d+)""").find(data)?.groupValues?.get(1)?.let { return it }
+        return null
+    }
+
+    private fun postRequest(url: String, body: String): String? {
+        return try {
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .addHeader("X-Requested-With", "XMLHttpRequest")
+                .addHeader("Referer", "$mainUrl/")
+                .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                .post(body.toRequestBody(null))
+                .build()
+            val resp = client.newCall(req).execute()
+            resp.body.string()
+        } catch (e: Exception) {
+            Log.e(TAG, "POST failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun getJson(url: String): String? {
+        return try {
+            val req = Request.Builder()
+                .url(url)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .addHeader("Referer", "$mainUrl/")
+                .get()
+                .build()
+            val resp = client.newCall(req).execute()
+            resp.body.string()
+        } catch (e: Exception) {
+            Log.e(TAG, "GET failed: ${e.message}")
+            null
+        }
     }
 
     data class LoadEpisodeResponse(

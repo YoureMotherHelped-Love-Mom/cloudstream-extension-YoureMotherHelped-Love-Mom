@@ -1,6 +1,5 @@
 package com.wco
 
-import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.lagradost.api.Log
@@ -8,18 +7,15 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import okhttp3.*
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
-class WCO(
-    private var savedDomain: String?,
-    private val sharedPref: SharedPreferences?
-) : MainAPI() {
-    override var mainUrl: String = savedDomain ?: DEFAULT_DOMAIN
-
+class WCO : MainAPI() {
+    override var mainUrl = "https://www.wco.tv"
     override var name = "WCO"
     override val hasQuickSearch = false
     override val hasMainPage = true
@@ -36,43 +32,7 @@ class WCO(
             .readTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
             .build()
-        private const val DOMAINS_URL = "https://www.wcostatus.com/check.php"
-        private const val DEFAULT_DOMAIN = "https://www.wco.tv"
     }
-
-    data class WCODomain(
-        @SerializedName("domain") val domain: String,
-        @SerializedName("status") val status: Int
-    )
-
-    suspend fun fetchDomains(): List<WCODomain> {
-        return try {
-            val req = Request.Builder().url(DOMAINS_URL)
-                .addHeader("User-Agent", "Mozilla/5.0")
-                .get().build()
-            val resp = client.newCall(req).execute()
-            val body = resp.body?.string() ?: return emptyList()
-            gson.fromJson(body, Array<WCODomain>::class.java).toList()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch domains: ${e.message}")
-            emptyList()
-        }
-    }
-
-    fun updateDomain(domain: String) {
-        savedDomain = domain
-        mainUrl = domain
-        sharedPref?.edit()?.putString("selected_domain", domain)?.apply()
-    }
-
-    override val mainPage
-        get() = mainPageOf(
-            "$mainUrl/" to "Recent Releases",
-            "$mainUrl/" to "Dubbed Anime",
-            "$mainUrl/" to "Cartoons",
-            "$mainUrl/" to "Subbed Anime",
-            "$mainUrl/" to "Movies"
-        )
 
     private fun Element.toSearchResult(): SearchResponse {
         val linkEl = selectFirst("div.img a") ?: selectFirst("a")
@@ -101,6 +61,15 @@ class WCO(
             this.posterUrl = posterUrl
         }
     }
+
+    override val mainPage
+        get() = mainPageOf(
+            "$mainUrl/" to "Recent Releases",
+            "$mainUrl/" to "Dubbed Anime",
+            "$mainUrl/" to "Cartoons",
+            "$mainUrl/" to "Subbed Anime",
+            "$mainUrl/" to "Movies"
+        )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val doc = app.get("$mainUrl/").document
@@ -161,19 +130,16 @@ class WCO(
         }.reversed()
 
         val dubEpisodes = episodes.filter {
-            val href = it.data ?: ""
-            href.contains("dubbed")
+            it.data.contains("dubbed")
         }
         val subEpisodes = episodes.filter {
-            val href = it.data ?: ""
-            href.contains("subbed")
+            it.data.contains("subbed")
         }
 
         return newAnimeLoadResponse(title, showUrl, TvType.TvSeries) {
             this.posterUrl = poster
             this.plot = plot
             this.tags = genres
-            this.year = null
             this.showStatus = ShowStatus.Completed
             if (dubEpisodes.isNotEmpty()) {
                 addEpisodes(DubStatus.Dubbed, dubEpisodes)
@@ -200,9 +166,7 @@ class WCO(
         if (decoded != null) {
             val iframeSrc = Jsoup.parse(decoded).selectFirst("iframe")?.attr("src")
             if (iframeSrc != null) {
-                loadExtractor(iframeSrc, "$mainUrl/", subtitleCallback) { link ->
-                    callback(link)
-                }
+                loadExtractor(iframeSrc, "$mainUrl/", subtitleCallback, callback)
                 return true
             }
         }
@@ -210,9 +174,7 @@ class WCO(
         val iframe = doc.selectFirst("iframe")
         if (iframe != null) {
             val src = iframe.attr("src")
-            loadExtractor(src, "$mainUrl/", subtitleCallback) { link ->
-                callback(link)
-            }
+            loadExtractor(src, "$mainUrl/", subtitleCallback, callback)
             return true
         }
 
@@ -281,10 +243,10 @@ class WCO(
                 .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .addHeader("Content-Type", "application/x-www-form-urlencoded")
                 .addHeader("Referer", "$mainUrl/")
-                .post(RequestBody.create(null, body))
+                .post(body.toRequestBody(null))
                 .build()
             val resp = client.newCall(req).execute()
-            resp.body?.string()
+            resp.body.string()
         } catch (e: Exception) {
             Log.e(TAG, "POST failed: ${e.message}")
             null
