@@ -1,7 +1,6 @@
 package com.wco
 
 import com.google.gson.Gson
-import com.google.gson.annotations.SerializedName
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -26,7 +25,6 @@ class WCO : MainAPI() {
 
     companion object {
         private const val TAG = "WCO"
-        private val gson = Gson()
         private val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -123,33 +121,35 @@ class WCO : MainAPI() {
             val epName = ep.selectFirst("span")?.text() ?: ""
             val epNum = extractEpisodeNumber(href, epName)
 
-            newEpisode(href) {
+            val iframeSrc = runCatching {
+                val episodeDoc = app.get(href).document
+                val decoded = decodeObfuscatedJs(episodeDoc.html())
+                if (decoded != null) {
+                    Jsoup.parse(decoded).selectFirst("iframe")?.attr("src")
+                } else {
+                    episodeDoc.selectFirst("iframe")?.attr("src")
+                }
+            }.getOrNull() ?: href
+
+            newEpisode(iframeSrc) {
                 this.name = epName
                 this.episode = epNum
             }
         }.reversed()
 
-        val dubEpisodes = episodes.filter {
-            it.data.contains("dubbed")
-        }
-        val subEpisodes = episodes.filter {
-            it.data.contains("subbed")
-        }
+        val dubEpisodes = episodes.filter { it.name?.contains("Dub", true) == true }
+        val subEpisodes = episodes.filter { it.name?.contains("Sub", true) == true }
+        val otherEpisodes = episodes.filter { it.name?.contains("Dub", true) != true && it.name?.contains("Sub", true) != true }
 
         return newAnimeLoadResponse(title, showUrl, TvType.TvSeries) {
             this.posterUrl = poster
             this.plot = plot
             this.tags = genres
             this.showStatus = ShowStatus.Completed
-            if (dubEpisodes.isNotEmpty()) {
-                addEpisodes(DubStatus.Dubbed, dubEpisodes)
-            }
-            if (subEpisodes.isNotEmpty()) {
-                addEpisodes(DubStatus.Subbed, subEpisodes)
-            }
-            if (dubEpisodes.isEmpty() && subEpisodes.isEmpty()) {
-                addEpisodes(DubStatus.Subbed, episodes)
-            }
+            if (dubEpisodes.isNotEmpty()) addEpisodes(DubStatus.Dubbed, dubEpisodes)
+            if (subEpisodes.isNotEmpty()) addEpisodes(DubStatus.Subbed, subEpisodes)
+            if (dubEpisodes.isEmpty() && subEpisodes.isEmpty()) addEpisodes(DubStatus.Subbed, episodes)
+            if (otherEpisodes.isNotEmpty()) addEpisodes(DubStatus.Subbed, otherEpisodes)
         }
     }
 
@@ -159,26 +159,7 @@ class WCO : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val doc = app.get(data).document
-        val html = doc.html()
-
-        val decoded = decodeObfuscatedJs(html)
-        if (decoded != null) {
-            val iframeSrc = Jsoup.parse(decoded).selectFirst("iframe")?.attr("src")
-            if (iframeSrc != null) {
-                loadExtractor(iframeSrc, "$mainUrl/", subtitleCallback, callback)
-                return true
-            }
-        }
-
-        val iframe = doc.selectFirst("iframe")
-        if (iframe != null) {
-            val src = iframe.attr("src")
-            loadExtractor(src, "$mainUrl/", subtitleCallback, callback)
-            return true
-        }
-
-        return false
+        return loadExtractor(data, "$mainUrl/", subtitleCallback, callback)
     }
 
     private fun episodeUrlToShowUrl(episodeUrl: String): String {

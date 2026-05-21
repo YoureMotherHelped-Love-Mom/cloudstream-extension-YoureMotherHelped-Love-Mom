@@ -8,7 +8,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
@@ -94,7 +93,12 @@ class Kimcartoon2 : MainAPI() {
             val epNum = extractEpisodeNumber(epHref, epTitle)
             val epDate = ep.select("div").last()?.text()?.trim() ?: ""
 
-            newEpisode(epHref) {
+            val episodeId = extractEpisodeId(epHref)
+            val videoUrl = if (episodeId != null) {
+                fetchVideoUrl(episodeId) ?: epHref
+            } else epHref
+
+            newEpisode(videoUrl) {
                 this.name = epTitle
                 this.episode = epNum
                 if (epDate.isNotEmpty()) {
@@ -128,32 +132,23 @@ class Kimcartoon2 : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val episodeId = extractEpisodeId(data) ?: return false
+        return loadExtractor(data, "$mainUrl/", subtitleCallback, callback)
+    }
 
+    private fun fetchVideoUrl(episodeId: String): String? {
         val servers = listOf("hserver", "tserver")
         for (server in servers) {
             try {
-                val result = fetchVideoUrl(episodeId, server)
-                if (result != null) {
-                    val (videoUrl, isEmbed) = result
-                    if (isEmbed) {
-                        val iframeSrc = extractIframeSrc(videoUrl)
-                        if (iframeSrc != null) {
-                            loadExtractor(iframeSrc, "$mainUrl/", subtitleCallback, callback)
-                        }
-                    } else {
-                        loadExtractor(videoUrl, "$mainUrl/", subtitleCallback, callback)
-                    }
-                    return true
-                }
+                val result = fetchFromServer(episodeId, server)
+                if (result != null) return result
             } catch (e: Exception) {
                 Log.e(TAG, "Server $server failed: ${e.message}")
             }
         }
-        return false
+        return null
     }
 
-    private fun fetchVideoUrl(episodeId: String, server: String): Pair<String, Boolean>? {
+    private fun fetchFromServer(episodeId: String, server: String): String? {
         val response = postRequest(
             "$mainUrl/ajax/anime/load_episodes_v2?s=$server",
             "episode_id=$episodeId&s=$server"
@@ -165,32 +160,24 @@ class Kimcartoon2 : MainAPI() {
         val value = json.value
         val embed = json.embed ?: false
 
-        if (embed) {
-            return Pair(value, true)
-        }
-
-        if (json.type == "mediafire") return null
-
-        val videoUrl = if (value.contains(".m3u8") || value.contains(".mp4")) {
-            value
+        return if (embed) {
+            val doc = Jsoup.parse(value)
+            doc.selectFirst("iframe")?.attr("src")
         } else {
-            try {
-                val playlistJson = getJson(value) ?: return null
-                val playlist = gson.fromJson(playlistJson, PlaylistResponse::class.java)
-                playlist.playlist?.firstOrNull()?.let { item ->
-                    item.sources?.firstOrNull()?.file ?: item.file
-                } ?: value
-            } catch (e: Exception) {
-                value
+            if (json.type == "mediafire") return null
+            if (value.contains(".m3u8") || value.contains(".mp4")) value
+            else {
+                try {
+                    val playlistJson = getJson(value) ?: return null
+                    val playlist = gson.fromJson(playlistJson, PlaylistResponse::class.java)
+                    playlist.playlist?.firstOrNull()?.let { item ->
+                        item.sources?.firstOrNull()?.file ?: item.file
+                    } ?: value
+                } catch (_: Exception) {
+                    value
+                }
             }
         }
-
-        return if (videoUrl.isNotEmpty()) Pair(videoUrl, false) else null
-    }
-
-    private fun extractIframeSrc(html: String): String? {
-        val doc = Jsoup.parse(html)
-        return doc.selectFirst("iframe")?.attr("src")?.let { fixUrl(it) }
     }
 
     private fun extractEpisodeNumber(href: String, title: String): Int {
